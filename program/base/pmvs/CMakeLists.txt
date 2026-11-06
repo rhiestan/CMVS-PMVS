@@ -25,4 +25,11 @@ point.h
 point.cc
 seed.h
 seed.cc
+tex_kernel.h
+tex_kernel.cc
 )
+
+IF(PMVS_USE_HIGHWAY)
+  TARGET_LINK_LIBRARIES(pmvs_lib PUBLIC hwy::hwy)
+  TARGET_COMPILE_DEFINITIONS(pmvs_lib PUBLIC PMVS_USE_HIGHWAY=1)
+ENDIF(PMVS_USE_HIGHWAY)

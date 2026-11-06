@@ -101,9 +101,9 @@ float Cfilter::computeGain(const Patch::Cpatch& patch, const int lock) {
     float maxpressure = 0.0f;
 
     {
-      std::deque<std::lock_guard<std::mutex>> guard;
+      std::unique_lock<std::mutex> guard(m_fm.m_imageLocks[index], std::defer_lock);
       if (lock)
-        guard.emplace_back(m_fm.m_imageLocks[index]);
+        guard.lock();
 
       for (int j = 0; j < (int)m_fm.m_pos.m_pgrids[index][index2].size(); ++j) {
         if (!m_fm.isNeighbor(patch, *m_fm.m_pos.m_pgrids[index][index2][j],
@@ -129,9 +129,9 @@ float Cfilter::computeGain(const Patch::Cpatch& patch, const int lock) {
     float maxpressure = 0.0f;      
 
     {
-      std::deque<std::lock_guard<std::mutex>> guard;
+      std::unique_lock<std::mutex> guard(m_fm.m_imageLocks[index], std::defer_lock);
       if (lock)
-        guard.emplace_back(m_fm.m_imageLocks[index]);
+        guard.lock();
     
       for (int j = 0; j < (int)m_fm.m_pos.m_pgrids[index][index2].size(); ++j) {
         const float bdepth = m_fm.m_pss.computeDepth(index, m_fm.m_pos.m_pgrids[index][index2][j]->m_coord);
@@ -263,7 +263,8 @@ void Cfilter::filterExact(void) {
   
   m_fm.m_debug = 1;
   
-  int count = 0;
+  // The images of the patches
+  m_refPatches.clear();
   for (int p = 0; p < psize; ++p) {
     if (m_fm.m_pos.m_ppatches[p]->m_fix)
       continue;
@@ -284,8 +285,30 @@ void Cfilter::filterExact(void) {
     patch.m_images.swap(m_newimages[p]);
     patch.m_grids.swap(m_newgrids[p]);
 
-    if (m_fm.m_minImageNumThreshold <= (int)patch.m_images.size()) {
-      m_fm.m_optim.setRefImage(patch, 0);
+    if (m_fm.m_minImageNumThreshold <= (int)patch.m_images.size())
+      m_refPatches.push_back(p);
+  }
+
+  // The reference image only depends on the patch itself.
+  m_fm.m_count = 0;
+  m_refNext = 0;
+  vector<thrd_t> threads1(m_fm.m_CPU);
+  for (int i = 0; i < m_fm.m_CPU; ++i)
+    thrd_create(&threads1[i], &filterExactRefThreadTmp, (void*)this);
+  for (int i = 0; i < m_fm.m_CPU; ++i)
+    thrd_join(threads1[i], NULL);
+
+  // Update the grids and remove patches in the order of the patches
+  int count = 0;
+  size_t refNum = 0;
+  for (int p = 0; p < psize; ++p) {
+    if (m_fm.m_pos.m_ppatches[p]->m_fix)
+      continue;
+    
+    Cpatch& patch = *m_fm.m_pos.m_ppatches[p];
+
+    if (refNum < m_refPatches.size() && m_refPatches[refNum] == p) {
+      ++refNum;
       m_fm.m_pos.setGrids(patch);
     }
 
@@ -299,6 +322,32 @@ void Cfilter::filterExact(void) {
        << (int)m_fm.m_pos.m_ppatches.size() - count << " ("
        << 100 * ((int)m_fm.m_pos.m_ppatches.size() - count) / (float)m_fm.m_pos.m_ppatches.size()
        << "%)\t" << (tv - curtime) / CLOCKS_PER_SEC << " secs" << endl;
+}
+
+void Cfilter::filterExactRefThread(void) {
+  mtx_lock(&m_fm.m_lock);
+  const int id = m_fm.m_count++;
+  mtx_unlock(&m_fm.m_lock);
+
+  const int n = (int)m_refPatches.size();
+  const int chunk = 16;
+  while (1) {
+    mtx_lock(&m_fm.m_lock);
+    const int begin = m_refNext;
+    m_refNext += chunk;
+    mtx_unlock(&m_fm.m_lock);
+
+    if (n <= begin)
+      break;
+    const int end = min(n, begin + chunk);
+    for (int i = begin; i < end; ++i)
+      m_fm.m_optim.setRefImage(*m_fm.m_pos.m_ppatches[m_refPatches[i]], id);
+  }
+}
+
+int Cfilter::filterExactRefThreadTmp(void* arg) {
+  ((Cfilter*)arg)->filterExactRefThread();
+  return 0;
 }
 
 void Cfilter::filterExactThread(void) {

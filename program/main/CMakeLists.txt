@@ -8,6 +8,13 @@ ADD_EXECUTABLE(genOption genOption.cc)
 ADD_EXECUTABLE(cmvs cmvs.cc)
 TARGET_LINK_LIBRARIES(cmvs cmvs_lib image_lib graclus_lib ${PMVS_LIBRARIES} tinycthread)
 
+IF(PMVS_USE_MIMALLOC)
+  FOREACH(target pmvs2 cmvs)
+    TARGET_SOURCES(${target} PRIVATE ${CMAKE_SOURCE_DIR}/cmake/mimalloc_override.cc)
+    TARGET_LINK_LIBRARIES(${target} ${PMVS_MIMALLOC_TARGET})
+  ENDFOREACH()
+ENDIF(PMVS_USE_MIMALLOC)
+
 INSTALL(TARGETS genOption DESTINATION bin/)
 INSTALL(TARGETS cmvs DESTINATION bin/)
 INSTALL(TARGETS pmvs2 DESTINATION bin/)

@@ -1,5 +1,6 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
+#include <cstdio>
 
 #include <deque>
 #include <iomanip>
@@ -517,9 +518,9 @@ int CpatchOrganizerS::isVisible(const Cpatch& patch, const int image,
   const int index = iy * gwidth + ix;
   
   {
-    std::deque<std::lock_guard<std::mutex>> guard;
+    std::unique_lock<std::mutex> guard(m_fm.m_imageLocks[image], std::defer_lock);
     if (lock)
-      guard.emplace_back(m_fm.m_imageLocks[image]);
+      guard.lock();
 
     if (m_dpgrids[image][index] == m_MAXDEPTH)
       ans = 1;
@@ -576,9 +577,9 @@ void CpatchOrganizerS::findNeighbors(const Patch::Cpatch& patch,
     const int& iy = (*bgrid)[1];
 
     {
-      std::deque<std::lock_guard<std::mutex>> guard;
+      std::unique_lock<std::mutex> guard(m_fm.m_imageLocks[image], std::defer_lock);
       if (lock)
-        guard.emplace_back(m_fm.m_imageLocks[image]);
+        guard.lock();
       for (int j = -margin; j <= margin; ++j) {
         const int ytmp = iy + j;
         if (ytmp < 0 || m_fm.m_pos.m_gheights[image] <= ytmp)
@@ -626,9 +627,9 @@ void CpatchOrganizerS::findNeighbors(const Patch::Cpatch& patch,
       const int& ix = (*bgrid)[0];
       const int& iy = (*bgrid)[1];
       {
-        std::deque<std::lock_guard<std::mutex>> guard;
+        std::unique_lock<std::mutex> guard(m_fm.m_imageLocks[image], std::defer_lock);
         if (lock)
-          guard.emplace_back(m_fm.m_imageLocks[image]);
+          guard.lock();
         for (int j = -margin; j <= margin; ++j) {
           const int ytmp = iy + j;
           if (ytmp < 0 || m_fm.m_pos.m_gheights[image] <= ytmp)
@@ -788,15 +789,21 @@ void CpatchOrganizerS::writePLY(const std::vector<Ppatch>& patches,
       color[2] = (int)(b * 255.0f);
     }
     
-    ofstr << (*bpatch)->m_coord[0] << ' '
-          << (*bpatch)->m_coord[1] << ' '
-          << (*bpatch)->m_coord[2] << ' '
-          << (*bpatch)->m_normal[0] << ' '
-          << (*bpatch)->m_normal[1] << ' '
-          << (*bpatch)->m_normal[2] << ' '
-          << color[0] << ' ' << color[1] << ' ' << color[2] << ' '
-          << (*bpatch)->m_ncc << '\n';
-      ++bpatch;
+    // The same text as with the stream (17 significant digits), formatted
+    // faster.
+    char line[256];
+    const int len = snprintf(line, sizeof(line),
+                             "%.17g %.17g %.17g %.17g %.17g %.17g %d %d %d %.17g\n",
+                             (double)(*bpatch)->m_coord[0],
+                             (double)(*bpatch)->m_coord[1],
+                             (double)(*bpatch)->m_coord[2],
+                             (double)(*bpatch)->m_normal[0],
+                             (double)(*bpatch)->m_normal[1],
+                             (double)(*bpatch)->m_normal[2],
+                             color[0], color[1], color[2],
+                             (double)(*bpatch)->m_ncc);
+    ofstr.write(line, len);
+    ++bpatch;
   }
   ofstr.close();  
 }

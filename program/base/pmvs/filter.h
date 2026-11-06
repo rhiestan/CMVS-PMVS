@@ -30,6 +30,11 @@ class Cfilter {
   void filterExact(void);
   void filterExactThread(void);
   static int filterExactThreadTmp(void* arg);
+  // Sets the reference images of the patches in m_refPatches (parallel)
+  void filterExactRefThread(void);
+  static int filterExactRefThreadTmp(void* arg);
+  std::vector<int> m_refPatches;
+  int m_refNext;
   
   void filterNeighbor(const int time);
   void filterSmallGroups(void);

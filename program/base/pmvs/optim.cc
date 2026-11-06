@@ -1,4 +1,5 @@
 #define _USE_MATH_DEFINES
+#include "tex_kernel.h"
 #include <cmath>
 
 #include <algorithm>
@@ -867,16 +868,16 @@ static float Log2 = log(2.0f);
 int Coptim::grabTex(const Vec4f& coord, const Vec4f& pxaxis, const Vec4f& pyaxis,
 		    const Vec4f& pzaxis, const int index, const int size,
                     std::vector<float>& tex) const {
-  tex.clear();
-
   Vec4f ray = m_fm.m_pss.m_photos[index].m_center - coord;
   unitize(ray);
   const float weight = max(0.0f, ray * pzaxis);
 
   //???????
   //if (weight < cos(m_fm.m_angleThreshold0))
-  if (weight < cos(m_fm.m_angleThreshold1))
+  if (weight < cos(m_fm.m_angleThreshold1)) {
+    tex.clear();
     return 1;
+  }
 
   const int margin = size / 2;
 
@@ -898,24 +899,19 @@ int Coptim::grabTex(const Vec4f& coord, const Vec4f& pxaxis, const Vec4f& pyaxis
 
   center /= scale;  dx /= scale;  dy /= scale;
   
-  if (grabSafe(index, size, center, dx, dy, newlevel) == 0)
+  if (grabSafe(index, size, center, dx, dy, newlevel) == 0) {
+    tex.clear();
     return 1;
+  }
   
   Vec3f left = center - dx * margin - dy * margin;
 
-  tex.resize(3 * size * size);
-  float* texp = &tex[0] - 1;
-  for (int y = 0; y < size; ++y) {
-    Vec3f vftmp = left;
-    left += dy;
-    for (int x = 0; x < size; ++x) {
-      Vec3f color = m_fm.m_pss.getColor(index, vftmp[0], vftmp[1], newlevel);
-      *(++texp) = color[0];
-      *(++texp) = color[1];
-      *(++texp) = color[2];
-      vftmp += dx;
-    }
-  }
+  if ((int)tex.size() != 3 * size * size)
+    tex.resize(3 * size * size);
+  const Image::Cphoto& photo = m_fm.m_pss.m_photos[index];
+  TexKernel::SampleWindow(photo.getImage(newlevel).data(), photo.getWidth(newlevel),
+                          left[0], left[1], dx[0], dx[1], dy[0], dy[1], size,
+                          tex.data());
   
   return 0;
 }
@@ -1090,52 +1086,16 @@ void Coptim::normalize(std::vector<std::vector<float> >& texs,
 }
 
 void Coptim::normalize(std::vector<float>& tex) {
-  const int size = (int)tex.size();
-  const int size3 = size / 3;
-  Vec3f ave;
-
-  float* texp = &tex[0] - 1;
-  for (int i = 0; i < size3; ++i) {
-    ave[0] += *(++texp);
-    ave[1] += *(++texp);
-    ave[2] += *(++texp);
-  }
-  
-  ave /= size3;
-
-  float ave2 = 0.0;
-  texp = &tex[0] - 1;
-  for (int i = 0; i < size3; ++i) {
-    const float f0 = ave[0] - *(++texp);
-    const float f1 = ave[1] - *(++texp);
-    const float f2 = ave[2] - *(++texp);
-    
-    ave2 += f0 * f0 + f1 * f1 + f2 * f2;
-  }
-  
-  ave2 = sqrt(ave2 / size);
-  
-  if (ave2 == 0.0f)
-    ave2 = 1.0f;
-  
-  texp = &tex[0] - 1;
-  for (int i = 0; i < size3; ++i) {
-    *(++texp) -= ave[0];    *texp /= ave2;
-    *(++texp) -= ave[1];    *texp /= ave2;
-    *(++texp) -= ave[2];    *texp /= ave2;
-  }
+  if (tex.empty())
+    return;
+  TexKernel::Normalize(tex.data(), (int)tex.size());
 }
 
 float Coptim::dot(const std::vector<float>& tex0,
 		  const std::vector<float>& tex1) const{
 #ifndef PMVS_WNCC
   // Pierre Moulon (use classic access to array, windows STL do not like begin()-1)
-  const int size = (int)tex0.size();
-  float ans = 0.0f;
-  for (int i = 0; i < size; ++i) {
-    ans += tex0[i] * tex1[i];
-  }  
-  return ans / size;
+  return TexKernel::Dot(tex0.data(), tex1.data(), (int)tex0.size());
 #else
   const int size = (int)tex0.size();
   vector<float>::const_iterator i0 = tex0.begin();

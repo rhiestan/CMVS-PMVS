@@ -16,6 +16,12 @@ set (CMAKE_CXX_STANDARD 11)
 # it is only used for small matrices.
 ADD_DEFINITIONS(-DEIGEN_DONT_VECTORIZE)
 
+# errno is never checked after math functions; without it sqrt() is a single
+# instruction. This does not change any result.
+IF(NOT MSVC)
+  ADD_COMPILE_OPTIONS(-fno-math-errno)
+ENDIF(NOT MSVC)
+
 # Replacement for <strings.h> on Windows
 IF(WIN32)
   INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/cmake/shims)
@@ -40,6 +46,23 @@ INCLUDE_DIRECTORIES(
 # Threads
 FIND_PACKAGE(Threads REQUIRED)
 SET(PMVS_LIBRARIES ${PMVS_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+
+# Google Highway, used for the SIMD kernels of the patch optimization
+OPTION(PMVS_USE_HIGHWAY "Use Google Highway for SIMD kernels" ON)
+IF(PMVS_USE_HIGHWAY)
+  FIND_PACKAGE(hwy CONFIG REQUIRED)
+ENDIF(PMVS_USE_HIGHWAY)
+
+# mimalloc, used for all C++ allocations (operator new/delete) of the executables
+OPTION(PMVS_USE_MIMALLOC "Use mimalloc for C++ allocations" ON)
+IF(PMVS_USE_MIMALLOC)
+  FIND_PACKAGE(mimalloc CONFIG REQUIRED)
+  IF(TARGET mimalloc-static)
+    SET(PMVS_MIMALLOC_TARGET mimalloc-static)
+  ELSE()
+    SET(PMVS_MIMALLOC_TARGET mimalloc)
+  ENDIF()
+ENDIF(PMVS_USE_MIMALLOC)
 
 # Eigen
 SET( EIGEN3_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/thirdParty/Eigen )
@@ -110,3 +133,10 @@ ENDIF(PMVS_USE_TIFF)
 ADD_SUBDIRECTORY(base)
 ADD_SUBDIRECTORY(main)
 ADD_SUBDIRECTORY(thirdParty)
+
+# Tests
+OPTION(PMVS_BUILD_TESTS "Build the unit tests" ON)
+IF(PMVS_BUILD_TESTS)
+  ENABLE_TESTING()
+  ADD_SUBDIRECTORY(tests)
+ENDIF(PMVS_BUILD_TESTS)

@@ -2,7 +2,9 @@
   "name": "cmvs-pmvs",
   "version-string": "0",
   "dependencies": [
-    "libjpeg-turbo"
+    "highway",
+    "libjpeg-turbo",
+    "mimalloc"
   ],
   "builtin-baseline": "d4c0a46cb8f63e5c9fa007d13baf1cb3e43bf7e3"
 }
