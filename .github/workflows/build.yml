@@ -1,0 +1,181 @@
+name: Build CMVS-PMVS
+
+# Builds the command-line tools (pmvs2, cmvs, genOption) with CMake, Ninja,
+# Clang and vcpkg on Windows, Linux and macOS, and runs the unit tests. When
+# a tag is pushed, the tools are packaged, uploaded as workflow artifacts and
+# attached to a GitHub release.
+
+on:
+  push:
+    branches: [ "perfopt" ]
+    tags: [ "*" ]
+  pull_request:
+    branches: [ "perfopt" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Must match the "builtin-baseline" in program/vcpkg.json.
+  VCPKG_COMMIT: d4c0a46cb8f63e5c9fa007d13baf1cb3e43bf7e3
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - { name: "Windows x64, Clang", os: windows-2022, preset: windows-clang-ci, suffix: windows-x64 }
+        - { name: "Linux x64, Clang",   os: ubuntu-22.04, preset: linux-clang,      suffix: linux-x64 }
+        - { name: "macOS arm64, Clang", os: macos-15,     preset: macos-clang,      suffix: macos-arm64 }
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Check out vcpkg
+      uses: actions/checkout@v6
+      with:
+        repository: microsoft/vcpkg
+        ref: ${{ env.VCPKG_COMMIT }}
+        path: vcpkg
+
+    - name: Cache vcpkg binary packages
+      uses: actions/cache@v4
+      with:
+        path: .vcpkg-cache
+        key: vcpkg-${{ matrix.suffix }}-${{ hashFiles('program/vcpkg.json') }}
+        restore-keys: vcpkg-${{ matrix.suffix }}-
+
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          autoconf automake clang libtool nasm ninja-build pkg-config zip
+
+    - name: Install macOS dependencies
+      if: runner.os == 'macOS'
+      run: brew install -q autoconf automake libtool nasm ninja
+
+    - name: Set up the Visual Studio environment
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    # Set after the Visual Studio environment, which overrides VCPKG_ROOT
+    # with the vcpkg bundled in Visual Studio.
+    - name: Set VCPKG_ROOT
+      run: echo "VCPKG_ROOT=$(echo "$GITHUB_WORKSPACE" | tr '\\' '/')/vcpkg" >> "$GITHUB_ENV"
+
+    # vcpkg compares the path with the instances it finds, so it must not
+    # end in a backslash as VSINSTALLDIR does.
+    - name: Set the Visual Studio path for vcpkg
+      if: runner.os == 'Windows'
+      run: |
+        dir="${VSINSTALLDIR%\\}"
+        echo "MVE_VS_INSTALL_DIR=${dir//\\//}" >> "$GITHUB_ENV"
+
+    - name: Bootstrap vcpkg (Windows)
+      if: runner.os == 'Windows'
+      shell: cmd
+      run: call "%VCPKG_ROOT%\bootstrap-vcpkg.bat" -disableMetrics
+
+    - name: Bootstrap vcpkg (Linux, macOS)
+      if: runner.os != 'Windows'
+      run: '"$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics'
+
+    - name: Compiler versions
+      run: |
+        clang --version
+        cmake --version
+        ninja --version
+
+    - name: Configure
+      working-directory: program
+      run: cmake --preset ${{ matrix.preset }}
+
+    - name: Build
+      working-directory: program
+      run: cmake --build --preset ${{ matrix.preset }}
+
+    - name: Test
+      working-directory: program
+      run: ctest --preset ${{ matrix.preset }}
+
+    # The tools print their usage when started without arguments; a missing
+    # library or a crash on startup would produce no such output.
+    - name: Smoke test
+      working-directory: program/build/${{ matrix.preset }}/main
+      run: |
+        for tool in pmvs2 cmvs genOption; do
+          out="$(./${tool} 2>&1 || true)"
+          echo "${out}"
+          grep -q "Usage" <<< "${out}"
+        done
+
+    # ---- Packaging, tags only ------------------------------------------
+
+    - name: Install
+      if: startsWith(github.ref, 'refs/tags/')
+      run: cmake --install program/build/${{ matrix.preset }} --prefix stage/cmvs-pmvs-${{ matrix.suffix }}
+
+    - name: Smoke test the installed tools
+      if: startsWith(github.ref, 'refs/tags/')
+      working-directory: stage/cmvs-pmvs-${{ matrix.suffix }}/bin
+      run: |
+        for tool in pmvs2 cmvs genOption; do
+          out="$(./${tool} 2>&1 || true)"
+          grep -q "Usage" <<< "${out}"
+        done
+
+    - name: Create archive
+      if: startsWith(github.ref, 'refs/tags/')
+      working-directory: stage
+      run: |
+        cp -r ../license ../Readme.md cmvs-pmvs-${{ matrix.suffix }}/
+        name="cmvs-pmvs-${{ github.ref_name }}-${{ matrix.suffix }}"
+        mv cmvs-pmvs-${{ matrix.suffix }} "${name}"
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          7z a -tzip "${name}.zip" "${name}"
+        else
+          tar czf "${name}.tar.gz" "${name}"
+        fi
+
+    - name: Upload artifact
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/upload-artifact@v4
+      with:
+        name: cmvs-pmvs-${{ matrix.suffix }}
+        path: |
+          stage/*.zip
+          stage/*.tar.gz
+        if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        merge-multiple: true
+
+    - name: Create GitHub release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: artifacts/*
+        generate_release_notes: true
