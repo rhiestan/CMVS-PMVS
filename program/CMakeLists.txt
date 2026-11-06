@@ -6,11 +6,20 @@
 # 28 july 2014 Make VisualStudio Win32/Win64 detection automatic
 # 15.01.2015 Added tinycthread, nlopt, CImg, removed BLAS, LAPACK, GSL, lmfit, winpthread (R. Hiestand)
 
-CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.21)
 
 PROJECT(CMVS-PMVS2 C CXX)
 
 set (CMAKE_CXX_STANDARD 11)
+
+# The bundled Eigen 3.2 does not compile with its SSE code on current Clang;
+# it is only used for small matrices.
+ADD_DEFINITIONS(-DEIGEN_DONT_VECTORIZE)
+
+# Replacement for <strings.h> on Windows
+IF(WIN32)
+  INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/cmake/shims)
+ENDIF(WIN32)
 
 # By default build in Release mode
 IF(NOT CMAKE_BUILD_TYPE AND NOT MSVC)
@@ -101,4 +110,3 @@ ENDIF(PMVS_USE_TIFF)
 ADD_SUBDIRECTORY(base)
 ADD_SUBDIRECTORY(main)
 ADD_SUBDIRECTORY(thirdParty)
-

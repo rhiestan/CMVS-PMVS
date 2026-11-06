@@ -4,6 +4,7 @@
 #ifndef TOOLS_H
 #define TOOLS_H
 
+#include <functional>
 #include <float.h>
 #include <iostream>
 
