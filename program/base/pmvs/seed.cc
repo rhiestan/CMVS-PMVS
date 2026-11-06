@@ -302,7 +302,10 @@ void Cseed::collectCandidates(const int index, const std::vector<int>& indexes,
   }
   
   // set distances to m_response
-  vector<Ppoint> vcptmp;
+  // The points are shared between the threads, which all write the response
+  // of the points they look at. Sort a local copy of the responses, so that
+  // the comparison cannot change during the sort.
+  vector<pair<float, Ppoint> > vcptmp;
   for (int i = 0; i < (int)vcp.size(); ++i) {
     unproject(index, vcp[i]->m_itmp, point, *vcp[i], vcp[i]->m_coord);
     
@@ -315,14 +318,23 @@ void Cseed::collectCandidates(const int index, const std::vector<int>& indexes,
       continue;
 
     //??? from the closest
-    vcp[i]->m_response =
+    const float response =
       fabs(norm(vcp[i]->m_coord - m_fm.m_pss.m_photos[index].m_center) -
            norm(vcp[i]->m_coord - m_fm.m_pss.m_photos[vcp[i]->m_itmp].m_center));
+    vcp[i]->m_response = response;
     
-    vcptmp.push_back(vcp[i]);
+    vcptmp.push_back(make_pair(response, vcp[i]));
   }
-  vcptmp.swap(vcp);
-  sort(vcp.begin(), vcp.end());
+
+  // Closest first. Ppoint is a smart pointer, so sorting the pointers would
+  // compare addresses (depending on the heap layout) instead of the responses.
+  stable_sort(vcptmp.begin(), vcptmp.end(),
+              [](const pair<float, Ppoint>& a, const pair<float, Ppoint>& b) {
+                return a.first < b.first;
+              });
+  vcp.clear();
+  for (size_t i = 0; i < vcptmp.size(); ++i)
+    vcp.push_back(vcptmp[i].second);
 }
 
 int Cseed::canAdd(const int index, const int x, const int y) {
