@@ -137,10 +137,27 @@ sfcnn_work<Point>::sfcnn_work()
 template<typename Point>
 void sfcnn_work<Point>::sfcnn_work_init(int num_threads)
 {
-  pair_iter<typename vector<Point>::iterator,
-    typename vector<long unsigned int>::iterator> a(points.begin(), pointers.begin()),
-    b(points.end(), pointers.end());
-  sort(a,b,lt);
+  // Sort the points and the pointers by the order of the points. The pair of
+  // vectors is sorted through a permutation, which does not rely on proxy
+  // iterators (not every standard library supports them).
+  const size_t n = points.size();
+  vector<size_t> order(n);
+  for (size_t i = 0; i < n; ++i)
+    order[i] = i;
+  zorder_lt<Point> less = lt;
+  stable_sort(order.begin(), order.end(),
+              [&](size_t a, size_t b) { return less(points[a], points[b]); });
+
+  vector<Point> sortedPoints;
+  vector<long unsigned int> sortedPointers;
+  sortedPoints.reserve(n);
+  sortedPointers.reserve(n);
+  for (size_t i = 0; i < n; ++i) {
+    sortedPoints.push_back(points[order[i]]);
+    sortedPointers.push_back(pointers[order[i]]);
+  }
+  points.swap(sortedPoints);
+  pointers.swap(sortedPointers);
 }
 
 template<typename Point>
