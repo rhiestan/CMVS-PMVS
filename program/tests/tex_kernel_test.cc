@@ -93,7 +93,14 @@ int main() {
   std::mt19937 gen(1);
   std::uniform_real_distribution<float> uni(0.0f, 1.0f);
 
-  // Window sampling must be bit-identical.
+  // Window sampling must be bit-identical. Where the compiler fuses the
+  // multiplications and additions of the (scalar) reference into FMA
+  // instructions (arm64), the results can differ in the last bits.
+#if defined(__aarch64__) || defined(__ARM_FEATURE_FMA)
+  const float sample_tol = 1e-4f;
+#else
+  const float sample_tol = 0.0f;
+#endif
   const int width = 120, height = 90;
   std::vector<unsigned char> img(width * height * 3);
   for (auto& v : img) v = (unsigned char)(gen() & 255);
@@ -106,7 +113,7 @@ int main() {
     RefSample(img, width, x, y, dxx, dxy, dyx, dyy, size, ref);
     TexKernel::SampleWindow(img.data(), width, x, y, dxx, dxy, dyx, dyy, size, out.data());
     for (size_t i = 0; i < ref.size(); ++i)
-      if (ref[i] != out[i]) { CHECK(false, "sample trial %d value %zu: %.9g vs %.9g", trial, i, ref[i], out[i]); break; }
+      if (std::fabs(ref[i] - out[i]) > sample_tol) { CHECK(false, "sample trial %d value %zu: %.9g vs %.9g", trial, i, ref[i], out[i]); break; }
   }
 
   // Normalize and dot only differ by the summation order.
