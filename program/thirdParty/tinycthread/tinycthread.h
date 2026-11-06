@@ -57,8 +57,10 @@ freely, subject to the following restrictions:
   #define _TTHREAD_PLATFORM_DEFINED_
 #endif
 
-/* Activate some POSIX functionality (e.g. clock_gettime and recursive mutexes) */
-#if defined(_TTHREAD_POSIX_)
+/* Activate some POSIX functionality (e.g. clock_gettime and recursive mutexes).
+   Not on macOS: it provides these without feature macros, and the macros
+   would hide other functions such as fseeko(), which <fstream> uses. */
+#if defined(_TTHREAD_POSIX_) && !defined(__APPLE__)
   #undef _FEATURES_H
   #if !defined(_GNU_SOURCE)
     #define _GNU_SOURCE
